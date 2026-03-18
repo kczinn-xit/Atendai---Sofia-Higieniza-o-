@@ -3,14 +3,14 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-const { EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_INSTANCE, ANTHROPIC_API_KEY, OWNER_PHONE } = require("../config/env");
+const { EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_INSTANCE, OWNER_PHONE } = require("../config/env");
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const { getOrCreateSession, saveSession, clearSession } = require("./sessions");
 const { buildSystemPrompt } = require("./prompt");
 
 // ── Webhook recebe mensagens da Evolution API ──────────────────────────────
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200); // responde imediatamente para não dar timeout
-
   try {
     const body = req.body;
 
@@ -38,8 +38,8 @@ app.post("/webhook", async (req, res) => {
     const session = getOrCreateSession(phone);
     session.messages.push({ role: "user", content: text });
 
-    // Chama Claude
-    const reply = await askClaude(session.messages);
+    // Chama Groq
+    const reply = await askGroq(session.messages);
 
     // Salva resposta no histórico
     session.messages.push({ role: "assistant", content: reply });
@@ -48,7 +48,6 @@ app.post("/webhook", async (req, res) => {
     // Envia resposta ao cliente
     await sendMessage(from, reply);
     console.log(`📤 [${phone}] ${reply.substring(0, 80)}...`);
-
   } catch (err) {
     console.error("Erro no webhook:", err.message);
   }
@@ -70,25 +69,26 @@ async function notifyOwner(clientPhone, lastMessage) {
   await sendMessage(ownerJid, msg);
 }
 
-// ── Chama a API do Claude ─────────────────────────────────────────────────
-async function askClaude(messages) {
+// ── Chama a API do Groq ───────────────────────────────────────────────────
+async function askGroq(messages) {
   const response = await axios.post(
-    "https://api.anthropic.com/v1/messages",
+    "https://api.groq.com/openai/v1/chat/completions",
     {
-      model: "claude-sonnet-4-20250514",
+      model: "llama-3.3-70b-versatile",
       max_tokens: 1024,
-      system: buildSystemPrompt(),
-      messages,
+      messages: [
+        { role: "system", content: buildSystemPrompt() },
+        ...messages
+      ],
     },
     {
       headers: {
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
+        "Authorization": `Bearer ${GROQ_API_KEY}`,
+        "Content-Type": "application/json",
       },
     }
   );
-  return response.data.content[0].text;
+  return response.data.choices[0].message.content;
 }
 
 // ── Health check ──────────────────────────────────────────────────────────

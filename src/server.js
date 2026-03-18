@@ -8,6 +8,12 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const { getOrCreateSession, saveSession, clearSession } = require("./sessions");
 const { buildSystemPrompt } = require("./prompt");
 
+// ── Mapa de LIDs conhecidos para números reais ─────────────────────────────
+// Adicione aqui os LIDs que aparecem nos logs -> número real
+const LID_MAP = {
+  "154572198834265": "244954475205",
+};
+
 // ── Webhook recebe mensagens da Evolution API ──────────────────────────────
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
@@ -19,23 +25,18 @@ app.post("/webhook", async (req, res) => {
     if (!msg || msg.key?.fromMe) return;
 
     const rawJid = msg.key.remoteJid;
-    console.log("KEY:", JSON.stringify(msg.key));
-    console.log("PUSHNAME:", msg.pushName);
-    console.log("PARTICIPANT:", msg.participant);
 
-    // Se for @lid, tenta usar o número real do participant
+    // Resolve o número real
     let phone, from;
     if (rawJid.includes("@lid")) {
-      const realJid = msg.participant || msg.key.participant || rawJid;
-      phone = realJid.replace("@s.whatsapp.net", "").replace("@lid", "");
+      const lid = rawJid.replace("@lid", "");
+      phone = LID_MAP[lid] || lid; // usa o mapa ou o LID mesmo se não encontrar
       from = `${phone}@s.whatsapp.net`;
+      console.log(`🔄 LID ${lid} → ${phone}`);
     } else {
       phone = rawJid.replace("@s.whatsapp.net", "").replace("@g.us", "");
       from = rawJid;
     }
-
-    console.log("PHONE RESOLVIDO:", phone);
-    console.log("FROM RESOLVIDO:", from);
 
     const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
     if (!text) return;

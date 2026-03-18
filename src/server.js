@@ -18,11 +18,13 @@ app.post("/webhook", async (req, res) => {
     const msg = body.data;
     if (!msg || msg.key?.fromMe) return;
 
-    const from = msg.key.remoteJid;
+    const rawJid = msg.key.remoteJid;
+    const phone = rawJid.replace("@s.whatsapp.net", "").replace("@g.us", "").replace("@lid", "");
+    const from = `${phone}@s.whatsapp.net`;
+
     const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
     if (!text) return;
 
-    const phone = from.replace("@s.whatsapp.net", "").replace("@g.us", "");
     console.log(`📩 [${phone}] ${text}`);
 
     if (/humano|atendente|pessoa|operador/i.test(text)) {
@@ -36,7 +38,6 @@ app.post("/webhook", async (req, res) => {
     session.messages.push({ role: "user", content: text });
 
     console.log("🤖 Chamando Groq...");
-    console.log("🔑 GROQ_API_KEY presente:", !!GROQ_API_KEY);
     const reply = await askGroq(session.messages);
     console.log("✅ Groq respondeu!");
 

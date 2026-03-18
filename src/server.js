@@ -35,16 +35,21 @@ app.post("/webhook", async (req, res) => {
     const session = getOrCreateSession(phone);
     session.messages.push({ role: "user", content: text });
 
+    console.log("🤖 Chamando Groq...");
+    console.log("🔑 GROQ_API_KEY presente:", !!GROQ_API_KEY);
     const reply = await askGroq(session.messages);
+    console.log("✅ Groq respondeu!");
 
     session.messages.push({ role: "assistant", content: reply });
     saveSession(phone, session);
 
+    console.log("📤 Enviando resposta via Evolution...");
     await sendMessage(from, reply);
     console.log(`📤 [${phone}] ${reply.substring(0, 80)}...`);
   } catch (err) {
     const detail = JSON.stringify(err.response?.data) || err.message;
-    console.error("Erro no webhook:", detail);
+    const url = err.config?.url || "url desconhecida";
+    console.error(`Erro no webhook [${url}]:`, detail);
   }
 });
 
@@ -66,9 +71,6 @@ async function notifyOwner(clientPhone, lastMessage) {
 
 // ── Chama a API do Groq ───────────────────────────────────────────────────
 async function askGroq(messages) {
-  console.log("🤖 Chamando Groq com", messages.length, "mensagens...");
-  console.log("🔑 GROQ_API_KEY presente:", !!GROQ_API_KEY);
-
   const response = await axios.post(
     "https://api.groq.com/openai/v1/chat/completions",
     {

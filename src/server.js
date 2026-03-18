@@ -19,8 +19,23 @@ app.post("/webhook", async (req, res) => {
     if (!msg || msg.key?.fromMe) return;
 
     const rawJid = msg.key.remoteJid;
-    const phone = rawJid.replace("@s.whatsapp.net", "").replace("@g.us", "").replace("@lid", "");
-    const from = `${phone}@s.whatsapp.net`;
+    console.log("KEY:", JSON.stringify(msg.key));
+    console.log("PUSHNAME:", msg.pushName);
+    console.log("PARTICIPANT:", msg.participant);
+
+    // Se for @lid, tenta usar o número real do participant
+    let phone, from;
+    if (rawJid.includes("@lid")) {
+      const realJid = msg.participant || msg.key.participant || rawJid;
+      phone = realJid.replace("@s.whatsapp.net", "").replace("@lid", "");
+      from = `${phone}@s.whatsapp.net`;
+    } else {
+      phone = rawJid.replace("@s.whatsapp.net", "").replace("@g.us", "");
+      from = rawJid;
+    }
+
+    console.log("PHONE RESOLVIDO:", phone);
+    console.log("FROM RESOLVIDO:", from);
 
     const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
     if (!text) return;

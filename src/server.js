@@ -10,23 +10,21 @@ const { buildSystemPrompt } = require("./prompt");
 
 // ── Webhook recebe mensagens da Evolution API ──────────────────────────────
 app.post("/webhook", async (req, res) => {
-  res.sendStatus(200); // responde imediatamente para não dar timeout
+  res.sendStatus(200);
   try {
     const body = req.body;
 
-    // Filtra apenas mensagens de texto recebidas (não enviadas pelo bot)
     if (body.event !== "messages.upsert") return;
     const msg = body.data;
     if (!msg || msg.key?.fromMe) return;
 
-    const from = msg.key.remoteJid; // ex: 244923000000@s.whatsapp.net
+    const from = msg.key.remoteJid;
     const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
     if (!text) return;
 
     const phone = from.replace("@s.whatsapp.net", "").replace("@g.us", "");
     console.log(`📩 [${phone}] ${text}`);
 
-    // Comando especial: cliente pede para falar com humano
     if (/humano|atendente|pessoa|operador/i.test(text)) {
       await sendMessage(from, "⏳ Entendido! Estou transferindo você para um atendente humano. Aguarde um momento...");
       await notifyOwner(phone, text);
@@ -34,22 +32,19 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
-    // Monta histórico de conversa da sessão
     const session = getOrCreateSession(phone);
     session.messages.push({ role: "user", content: text });
 
-    // Chama Groq
     const reply = await askGroq(session.messages);
 
-    // Salva resposta no histórico
     session.messages.push({ role: "assistant", content: reply });
     saveSession(phone, session);
 
-    // Envia resposta ao cliente
     await sendMessage(from, reply);
     console.log(`📤 [${phone}] ${reply.substring(0, 80)}...`);
   } catch (err) {
-    console.error("Erro no webhook:", err.message, err.response?.data);
+    const detail = JSON.stringify(err.response?.data) || err.message;
+    console.error("Erro no webhook:", detail);
   }
 });
 
@@ -71,10 +66,13 @@ async function notifyOwner(clientPhone, lastMessage) {
 
 // ── Chama a API do Groq ───────────────────────────────────────────────────
 async function askGroq(messages) {
+  console.log("🤖 Chamando Groq com", messages.length, "mensagens...");
+  console.log("🔑 GROQ_API_KEY presente:", !!GROQ_API_KEY);
+
   const response = await axios.post(
     "https://api.groq.com/openai/v1/chat/completions",
     {
-      model: "mixtral-8x7b-32768",
+      model: "llama-3.3-70b-versatile",
       max_tokens: 1024,
       messages: [
         { role: "system", content: buildSystemPrompt() },

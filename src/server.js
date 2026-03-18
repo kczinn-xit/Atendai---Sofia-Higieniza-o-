@@ -8,55 +8,6 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const { getOrCreateSession, saveSession, clearSession } = require("./sessions");
 const { buildSystemPrompt } = require("./prompt");
 
-// ── Resolve JID @lid para número real via Evolution API ───────────────────
-async function resolveJid(rawJid) {
-  // Se não for @lid, retorna directo
-  if (!rawJid.includes("@lid")) return rawJid;
-
-  try {
-    // Tenta buscar o contacto pelo JID na Evolution API
-    const lid = rawJid.replace("@lid", "");
-    const res = await axios.get(
-      `${EVOLUTION_API_URL}/chat/findContacts/${EVOLUTION_INSTANCE}`,
-      {
-        headers: { apikey: EVOLUTION_API_KEY },
-        params: { where: JSON.stringify({ id: rawJid }) }
-      }
-    );
-    const contacts = res.data;
-    if (contacts && contacts.length > 0) {
-      const contact = contacts[0];
-      // Tenta pegar o número real do contacto
-      const realNumber = contact.pushName ? contact.id : null;
-      if (realNumber && !realNumber.includes("@lid")) {
-        console.log(`✅ LID resolvido: ${rawJid} → ${realNumber}`);
-        return realNumber;
-      }
-    }
-  } catch (e) {
-    console.log("Não conseguiu resolver LID via contacts:", e.message);
-  }
-
-  // Fallback: tenta via fetchProfile
-  try {
-    const res = await axios.post(
-      `${EVOLUTION_API_URL}/chat/fetchProfile/${EVOLUTION_INSTANCE}`,
-      { number: rawJid },
-      { headers: { apikey: EVOLUTION_API_KEY } }
-    );
-    if (res.data?.jid && !res.data.jid.includes("@lid")) {
-      console.log(`✅ LID resolvido via profile: ${rawJid} → ${res.data.jid}`);
-      return res.data.jid;
-    }
-  } catch (e) {
-    console.log("Não conseguiu resolver LID via profile:", e.message);
-  }
-
-  // Último fallback: usa o LID mesmo (pode não funcionar)
-  console.log(`⚠️ Não conseguiu resolver LID ${rawJid}, usando original`);
-  return rawJid;
-}
-
 // ── Webhook recebe mensagens da Evolution API ──────────────────────────────
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
@@ -68,17 +19,16 @@ app.post("/webhook", async (req, res) => {
     if (!msg || msg.key?.fromMe) return;
 
     const rawJid = msg.key.remoteJid;
+    const isLid = rawJid.includes("@lid");
+    const phone = rawJid.replace("@s.whatsapp.net", "").replace("@g.us", "").replace("@lid", "");
+
     const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
     if (!text) return;
 
-    // Resolve o JID real se for @lid
-    const from = await resolveJid(rawJid);
-    const phone = from.replace("@s.whatsapp.net", "").replace("@g.us", "").replace("@lid", "");
-
-    console.log(`📩 [${phone}] ${text}`);
+    console.log(`📩 [${phone}] ${text} | isLid: ${isLid}`);
 
     if (/humano|atendente|pessoa|operador/i.test(text)) {
-      await sendMessage(from, "⏳ Entendido! Estou transferindo você para um atendente humano. Aguarde um momento...");
+      await sendMessage(rawJid, isLid);
       await notifyOwner(phone, text);
       clearSession(phone);
       return;
@@ -94,8 +44,8 @@ app.post("/webhook", async (req, res) => {
     session.messages.push({ role: "assistant", content: reply });
     saveSession(phone, session);
 
-    console.log(`📤 Enviando para ${from}...`);
-    await sendMessage(from, reply);
+    console.log(`📤 Enviando para ${rawJid} (lid: ${isLid})...`);
+    await sendMessage(rawJid, reply, isLid);
     console.log(`📤 Enviado!`);
   } catch (err) {
     const detail = JSON.stringify(err.response?.data) || err.message;
@@ -105,19 +55,45 @@ app.post("/webhook", async (req, res) => {
 });
 
 // ── Envia mensagem via Evolution API ──────────────────────────────────────
-async function sendMessage(to, text) {
-  await axios.post(
-    `${EVOLUTION_API_URL}/message/sendText/${EVOLUTION_INSTANCE}`,
-    { number: to, text },
-    { headers: { apikey: EVOLUTION_API_KEY } }
-  );
+async function sendMessage(to, text, isLid = false) {
+  if (isLid) {
+    // Para @lid, usa o número sem sufixo e deixa a API resolver
+    const number = to.replace("@lid", "").replace("@s.whatsapp.net", "");
+    try {
+      // Tenta primeiro com o JID completo @lid
+      await axios.post(
+        `${EVOLUTION_API_URL}/message/sendText/${EVOLUTION_INSTANCE}`,
+        { number: to, text },
+        { headers: { apikey: EVOLUTION_API_KEY } }
+      );
+      return;
+    } catch (e) {
+      console.log("Falhou com @lid, tentando com número puro...");
+    }
+    // Fallback: tenta com número puro
+    await axios.post(
+      `${EVOLUTION_API_URL}/message/sendText/${EVOLUTION_INSTANCE}`,
+      { number: number, text },
+      { headers: { apikey: EVOLUTION_API_KEY } }
+    );
+  } else {
+    await axios.post(
+      `${EVOLUTION_API_URL}/message/sendText/${EVOLUTION_INSTANCE}`,
+      { number: to, text },
+      { headers: { apikey: EVOLUTION_API_KEY } }
+    );
+  }
 }
 
 // ── Notifica dono quando cliente pede humano ──────────────────────────────
 async function notifyOwner(clientPhone, lastMessage) {
   const ownerJid = `${OWNER_PHONE}@s.whatsapp.net`;
   const msg = `🔔 *Transferência solicitada!*\n\nCliente: *${clientPhone}*\nÚltima mensagem: "${lastMessage}"\n\nResponda diretamente para ${clientPhone}`;
-  await sendMessage(ownerJid, msg);
+  await axios.post(
+    `${EVOLUTION_API_URL}/message/sendText/${EVOLUTION_INSTANCE}`,
+    { number: ownerJid, text: msg },
+    { headers: { apikey: EVOLUTION_API_KEY } }
+  );
 }
 
 // ── Chama a API do Groq ───────────────────────────────────────────────────

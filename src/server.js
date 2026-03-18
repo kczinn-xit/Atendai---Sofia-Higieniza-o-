@@ -74,7 +74,7 @@ async function askGroq(messages) {
   const response = await axios.post(
     "https://api.groq.com/openai/v1/chat/completions",
     {
-      model: "llama-3.3-70b-versatile",
+      model: "llama3-70b-8192",
       max_tokens: 1024,
       messages: [
         { role: "system", content: buildSystemPrompt() },

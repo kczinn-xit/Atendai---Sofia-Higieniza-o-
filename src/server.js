@@ -49,7 +49,7 @@ app.post("/webhook", async (req, res) => {
     await sendMessage(from, reply);
     console.log(`📤 [${phone}] ${reply.substring(0, 80)}...`);
   } catch (err) {
-    console.error("Erro no webhook:", err.message);
+    console.error("Erro no webhook:", err.message, err.response?.data);
   }
 });
 

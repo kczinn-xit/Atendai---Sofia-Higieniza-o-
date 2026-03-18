@@ -8,12 +8,6 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const { getOrCreateSession, saveSession, clearSession } = require("./sessions");
 const { buildSystemPrompt } = require("./prompt");
 
-// ── Mapa de LIDs conhecidos para números reais ─────────────────────────────
-// Adicione aqui os LIDs que aparecem nos logs -> número real
-const LID_MAP = {
-  "154572198834265": "244954475205",
-};
-
 // ── Webhook recebe mensagens da Evolution API ──────────────────────────────
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
@@ -24,24 +18,14 @@ app.post("/webhook", async (req, res) => {
     const msg = body.data;
     if (!msg || msg.key?.fromMe) return;
 
-    const rawJid = msg.key.remoteJid;
-
-    // Resolve o número real
-    let phone, from;
-    if (rawJid.includes("@lid")) {
-      const lid = rawJid.replace("@lid", "");
-      phone = LID_MAP[lid] || lid; // usa o mapa ou o LID mesmo se não encontrar
-      from = `${phone}@s.whatsapp.net`;
-      console.log(`🔄 LID ${lid} → ${phone}`);
-    } else {
-      phone = rawJid.replace("@s.whatsapp.net", "").replace("@g.us", "");
-      from = rawJid;
-    }
+    // Usa o JID original para responder — não converte
+    const from = msg.key.remoteJid;
+    const phone = from.replace("@s.whatsapp.net", "").replace("@g.us", "").replace("@lid", "");
 
     const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
     if (!text) return;
 
-    console.log(`📩 [${phone}] ${text}`);
+    console.log(`📩 [${phone}] ${text} | JID: ${from}`);
 
     if (/humano|atendente|pessoa|operador/i.test(text)) {
       await sendMessage(from, "⏳ Entendido! Estou transferindo você para um atendente humano. Aguarde um momento...");
@@ -60,9 +44,9 @@ app.post("/webhook", async (req, res) => {
     session.messages.push({ role: "assistant", content: reply });
     saveSession(phone, session);
 
-    console.log("📤 Enviando resposta via Evolution...");
+    console.log(`📤 Enviando para ${from}...`);
     await sendMessage(from, reply);
-    console.log(`📤 [${phone}] ${reply.substring(0, 80)}...`);
+    console.log(`📤 Enviado!`);
   } catch (err) {
     const detail = JSON.stringify(err.response?.data) || err.message;
     const url = err.config?.url || "url desconhecida";
